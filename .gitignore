@@ -1,0 +1,44 @@
+# Large waveform dumps
+*.vcd
+*.wdb
+
+# Folders not included in this submission
+host_camera_uart_enhanced/
+sobel_01_hdmi_pattern/
+sobel_02_hdmi_sobel/
+sobel_03_uart_hdmi/
+sobel_04_uart_sobel_hdmi/
+sobel_05_pc_control_display/
+sobel_05_pc_control_display_expand/
+
+# Vivado generated output
+**/.Xil/
+**/vivado-library-master/
+**/*.cache/
+**/*.hw/
+**/*.ip_user_files/
+**/*.runs/
+**/*.sim/
+**/*.gen/
+**/*.jou
+**/*.log
+**/*.str
+**/*.pb
+**/*.dcp
+**/*.vds
+
+# Xilinx SDK / Eclipse generated metadata
+**/__pycache__/
+*.pyc
+**/.metadata/
+**/Debug/
+**/Release/
+**/.settings/
+**/.project
+**/.cproject
+
+# Temporary and backup files
+*.backup.*
+*.tmp
+Thumbs.db
+desktop.ini
