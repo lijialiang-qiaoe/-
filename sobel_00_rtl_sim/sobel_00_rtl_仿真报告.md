@@ -144,11 +144,11 @@ Sobel 输出图如下。
 
 ## 7. 关键仿真波形
 
-仿真波形截图如下。
+整体仿真波形截图如下。该图用于确认复位、UART 接收、帧解析、灰度转换、Sobel 计算和输出完成信号均参与了一次完整帧处理过程。
 
 ![关键仿真波形](build/仿真波形图.png)
 
-图 3 关键仿真波形
+图 3 关键仿真波形总览
 
 波形中重点观察以下信号：
 
@@ -160,7 +160,13 @@ Sobel 输出图如下。
 | `edge_valid` | `sobel_core` 输出边缘像素有效 |
 | `video_frame_done` | 输出模型完成一帧视频流输出 |
 
-在波形中，`rgb_valid`、`gray_valid` 和 `edge_valid` 在图像处理阶段连续有效，说明像素流能够在各级模块之间稳定传递。`video_frame_done` 最终拉高，表示一帧图像的 Sobel 处理和输出已经结束。
+为了更清楚地展示模块之间的时序关系，将 VCD 波形导入 ModelSim，并对 Sobel 开始输出后的局部时段进行放大，如图 4 所示。
+
+![ModelSim 局部有效信号波形](build/modelsim_local_waveform.png)
+
+图 4 ModelSim 中 Sobel 处理通路局部有效信号波形
+
+局部波形中，`rgb_valid` 首先表示 `image_frame_rx` 输出一个 RGB 像素；随后 `gray_valid` 拉高，说明灰度转换模块完成该像素的灰度计算；之后 `edge_valid` 输出 Sobel 边缘结果；最后 `video_valid` 拉高，将边缘像素送入视频流输出模型。各级 `valid` 信号按时钟节拍依次错开，符合 RGB 输入、灰度转换、Sobel 边缘检测和视频输出之间的流水处理关系。`video_frame_done` 最终拉高，表示一帧图像的 Sobel 处理和输出已经结束。
 
 仿真控制台输出如下：
 
