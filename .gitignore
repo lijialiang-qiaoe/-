@@ -40,5 +40,6 @@ sobel_05_pc_control_display_expand/
 # Temporary and backup files
 *.backup.*
 *.tmp
+~$*
 Thumbs.db
 desktop.ini
