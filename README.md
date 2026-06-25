@@ -12,6 +12,11 @@
 | 实验 3 | UART 输入图像 HDMI 显示与边框拓展 | [sobel_03_uart_hdmi_实验报告.md](sobel_03_uart_hdmi_expand/sobel_03_uart_hdmi_实验报告.md) |
 | 实验 4 | UART 输入图像 Sobel 边缘检测与反色拓展 | [sobel_04_uart_sobel_hdmi_实验报告.md](sobel_04_uart_sobel_hdmi_expand/sobel_04_uart_sobel_hdmi_实验报告.md) |
 
+## 汇报材料
+
+- [汇报PPT(1).pptx](presentation/汇报PPT(1).pptx)
+- [report.mp4](presentation/report.mp4)
+
 ## 目录说明
 
 ```text
