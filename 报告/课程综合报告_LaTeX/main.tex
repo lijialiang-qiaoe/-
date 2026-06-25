@@ -1,4 +1,5 @@
 % !TeX program = xelatex
+% FPGA course design comprehensive report
 
 \documentclass[12pt,a4paper]{ctexart}
 \usepackage{GDUTReport}
@@ -23,16 +24,7 @@
 \setlist[itemize]{leftmargin=2em,itemsep=0.2em,topsep=0.2em}
 \setlist[enumerate]{leftmargin=2em,itemsep=0.2em,topsep=0.2em}
 
-\newcommand{\figone}[4]{
-    \begin{figure}[H]
-        \centering
-        \includegraphics[width=#1\textwidth]{#2}
-        \caption{#3}
-        \label{#4}
-    \end{figure}
-}
-
-\newcommand{\figtwo}[6]{
+\newcommand{\figtwocol}[6]{
     \begin{figure}[H]
         \centering
         \subfigure[#2]{\includegraphics[width=0.47\textwidth]{#1}}
@@ -43,20 +35,18 @@
     \end{figure}
 }
 
-\newcommand{\figthree}[8]{
+\newcommand{\figone}[4]{
     \begin{figure}[H]
         \centering
-        \subfigure[#2]{\includegraphics[width=0.31\textwidth]{#1}}
-        \subfigure[#4]{\includegraphics[width=0.31\textwidth]{#3}}
-        \subfigure[#6]{\includegraphics[width=0.31\textwidth]{#5}}
-        \caption{#7}
-        \label{#8}
+        \includegraphics[width=#1\textwidth]{#2}
+        \caption{#3}
+        \label{#4}
     \end{figure}
 }
 
 {
-    \title{FPGA课程设计最终报告}
-    \subtitle{基于sobel\_05的上位机控制显示与输入格式扩展}
+    \title{FPGA课程设计报告}
+    \subtitle{基于ZYNQ7020的图像采集、边缘检测与HDMI显示系统}
     \name{黎嘉亮}
     \thenumber{3123009617}
     \major{微电子科学与工程}
@@ -72,12 +62,12 @@
 
 \newpage
 \begin{abstract}
-本报告对应第二周综合设计阶段，重点记录在 \verb|sobel_05_pc_control_display| 基础上完成的上位机控制显示、显示模式切换、阈值调节、彩色叠加以及输入格式扩展。第一周的 RTL 仿真、HDMI 固定图案、HDMI Sobel、UART 图像显示和 UART Sobel 显示已经在仿真报告与初步实验报告中提交，本文只把它们作为实验五的前置基础，不再重复展开。
+本课程设计围绕 ZYNQ7020 图像处理实验展开，从纯 RTL 仿真开始，逐步完成 HDMI 图案显示、Sobel 边缘检测、UART 图像传输、PS/PL 联合显示控制，以及第二周综合拓展。整个系统以 Verilog 图像流水线为核心，配合 PS 端 C 程序和 PC 端 Python 上位机，实现了从图片或摄像头输入、串口发送、BRAM 缓存、灰度与边缘计算，到 HDMI 输出显示的完整链路。
 
-实验五的基础部分实现了 PC 上位机通过 UART 发送图像和控制命令，PS 端解析图像帧与控制帧并写入 BRAM，PL 端读取 BRAM 图像后完成灰度、Sobel、原图/灰度/边缘/叠加显示模式选择，最后通过 HDMI 输出到显示器。综合扩展部分选择“基于 sobel\_05 的上位机与输入规格扩展”，实际完成重点放在上位机侧：在保留原有显示控制命令的前提下，扩展图片输入方式，使上位机能够读取新增图片格式并统一预处理为 FPGA 工程支持的 RGB888 图像帧，再通过原 UART 协议送入开发板。报告中给出设计方案、关键代码思路、仿真/上板结果、资源占用、时序结果以及调试问题记录。
+本组在基础实验中完成了 \verb|sobel_00| 至 \verb|sobel_05| 的仿真、上板和现象记录；在小扩展中分别加入了红色边框显示、Sobel 反色显示、UART 图像边框标识等功能；在综合拓展中重点改造上位机输入规格，使其支持目标尺寸选择、缩放策略选择以及新增图片输入规格，并保持原图、灰度、边缘、叠加与阈值控制等显示命令可用。报告按照实验推进顺序记录设计思路、关键修改、验证现象、资源占用和调试问题。
 
 \par
-\textbf{关键词：} ZYNQ7020；FPGA；Sobel边缘检测；UART；HDMI；BRAM；上位机
+\textbf{关键词：} ZYNQ7020；FPGA；Sobel 边缘检测；UART；HDMI；BRAM；上位机
 \end{abstract}
 
 \tableofcontents
@@ -85,51 +75,63 @@
 \pagenumbering{arabic}
 \setcounter{page}{1}
 
-\section{课程设计任务说明}
+\section{课程设计总体说明}
 
-\subsection{第二周最终报告范围}
+\subsection{项目目标}
 
-本次最终报告聚焦第二周工作。第一周已经完成的 \verb|sobel_00| 至 \verb|sobel_04| 主要承担基础链路验证作用：\verb|sobel_00| 用 RTL 仿真确认 Sobel 核心和 UART 帧解析逻辑；\verb|sobel_01| 验证 HDMI 输出；\verb|sobel_02| 将 Sobel 边缘检测接入 HDMI；\verb|sobel_03| 加入 UART 图像输入和 BRAM 缓存；\verb|sobel_04| 完成 UART 输入图像的 Sobel 显示。上述内容已经分别整理为 Markdown 报告和初步实验材料。
+本次课程设计的主线是把图像处理链路拆成几个可以逐步验证的小实验。前半部分先用 RTL 仿真确认 Sobel 处理核心的正确性，再在开发板上验证 HDMI 时序和图像输出；中间部分加入 UART 和 PS 端程序，使 PC 端图像能够通过串口写入 BRAM；最后在 \verb|sobel_05_pc_control_display| 的基础上实现显示模式控制和输入规格扩展。
 
-第二周的工作从 \verb|sobel_05_pc_control_display| 开始。这个实验相比前面的主要变化是加入了“可交互控制”：PC 端不再只是发送图像，还可以发送显示模式、阈值和彩色叠加开关。也就是说，系统从单纯的图像显示链路，变成了“图像输入 + 图像处理 + 显示控制”的完整小系统。
-
-\subsection{最终设计目标}
-
-本组最终目标可以拆成两部分：
-
-\begin{enumerate}
-    \item 完成实验五基础功能。上位机发送图像，FPGA 端通过 HDMI 显示，并支持原图、灰度、边缘、叠加四种显示模式，支持阈值控制和彩色边缘叠加。
-    \item 在实验五基础上完成第二周综合扩展。本组选择综合扩展任务 1 中的上位机输入扩展方向，重点增加图片输入格式支持，使新增格式的图片也能经过上位机预处理后进入 FPGA 显示链路。
-\end{enumerate}
-
-本报告后续内容按这个顺序展开：先说明系统总体结构，再记录实验五基础现象，然后写综合扩展方案、仿真和上板结果，最后给出资源时序分析和问题总结。
+从实现角度看，本项目不是单一模块开发，而是一次从算法、时序、接口到上板调试的完整组合。我们最终需要回答三个问题：第一，图像数据能不能稳定进入 FPGA；第二，PL 侧流水线能不能正确完成灰度和 Sobel 处理；第三，HDMI 输出、显示控制和上位机交互能不能在真实板卡上跑通。
 
 \subsection{实验环境}
 
 \begin{table}[H]
 \centering
-\caption{实验环境}
+\caption{实验软硬件环境}
 \begin{tabular}{p{0.28\textwidth}p{0.60\textwidth}}
 \toprule
 项目 & 内容 \\
 \midrule
 开发板 & ZYNQ7020 开发板，器件型号 \verb|xc7z020clg400-2| \\
-FPGA 开发工具 & Vivado 2017.4，Xilinx SDK \\
-上位机环境 & Anaconda / Python，OpenCV，pyserial，Tkinter GUI \\
-输入输出接口 & USB-UART 串口输入，HDMI 显示输出 \\
+开发工具 & Vivado 2017.4，Xilinx SDK，ModelSim/Icarus Verilog，Python \\
+图像接口 & HDMI 显示输出，USB-UART 串口传输 \\
+主要语言 & Verilog HDL，C，Python \\
 基础图像规格 & \verb|128 x 72|，RGB888 \\
-第二周扩展方向 & 基于实验五的上位机输入格式扩展 \\
+综合拓展方向 & 基于 \verb|sobel_05| 的上位机与输入规格扩展 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
+\subsection{总体数据流}
+
+几个实验的功能逐步叠加，但核心数据路径保持一致。PC 端先把图像转换为约定尺寸和 RGB888 字节流，通过 UART 发给 PS；PS 端按帧头、行头和像素数据解析后写入 BRAM；PL 端从 BRAM 读取像素，完成灰度、Sobel 和显示模式选择，最终通过 HDMI 显示。
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1.35cm,
+    block/.style={draw, rounded corners, align=center, minimum width=2.3cm, minimum height=0.85cm, fill=gray!8},
+    arrow/.style={->, thick}
+]
+\node[block] (pc) {PC 上位机\\图片/摄像头};
+\node[block, right=of pc] (uart) {UART\\帧协议};
+\node[block, right=of uart] (ps) {PS 端 C 程序\\帧解析};
+\node[block, right=of ps] (bram) {AXI BRAM\\图像缓存};
+\node[block, below=of bram] (pl) {PL 图像流水线\\灰度/Sobel/控制};
+\node[block, left=of pl] (hdmi) {HDMI 输出\\显示器};
+\draw[arrow] (pc) -- (uart);
+\draw[arrow] (uart) -- (ps);
+\draw[arrow] (ps) -- (bram);
+\draw[arrow] (bram) -- (pl);
+\draw[arrow] (pl) -- (hdmi);
+\end{tikzpicture}
+\end{center}
+
 \subsection{小组分工}
 
-实验推进过程中，PL、PS、上位机和验证材料之间存在比较多的联调。表 \ref{tab:division} 按主要负责内容记录小组分工。
+小组分工按实验内容和联调环节拆分。实际推进时并不是完全割裂的，比如上位机和 PS 端会反复联调，PL 显示控制和时序验证也需要一起看；表中的分工主要对应每个人负责推进和整理的主任务。
 
-\begin{longtable}{@{}C{0.10\textwidth}C{0.17\textwidth}p{0.50\textwidth}C{0.08\textwidth}@{}}
-\caption{小组分工}
-\label{tab:division}\\
+\begin{longtable}{@{}C{0.10\textwidth}C{0.16\textwidth}p{0.50\textwidth}C{0.08\textwidth}@{}}
+\caption{小组分工表}\\
 \toprule
 成员 & 主要职责 & 具体工作内容 & 占比 \\
 \midrule
@@ -138,50 +140,23 @@ FPGA 开发工具 & Vivado 2017.4，Xilinx SDK \\
 成员 & 主要职责 & 具体工作内容 & 占比 \\
 \midrule
 \endhead
-黄煜盛 & 扩展实验开发、PL端联调 & 负责扩展实验 02、03、05 的代码编写与调试；参与综合拓展中 PL 端代码修改与联调，包括 \verb|hdmi_bram_sobel_display.v|、\verb|sobel_core.v| 等显示与边缘处理模块；整理实验现象与报告材料。 & 25\% \\
+黄煜盛 & 扩展实验开发、PL端联调 & 负责扩展实验 02、03、05 的代码编写与调试；综合拓展任务中 PL 端代码修改，包括 \verb|hdmi_bram_sobel_display.v|、\verb|sobel_core.v| 的尺寸参数适配思路和图像配置解析；参与 PL 与 PS 联调验证；整理实验报告材料。 & 25\% \\
 \midrule
-黎嘉亮 & 扩展实验开发、PS端开发 & 负责扩展实验 00、01、04 的代码编写与调试；参与 PS 端程序、BRAM 地址布局、控制字写入和实验报告整理；完成最终报告 LaTeX 整理。 & 25\% \\
+黎嘉亮 & 扩展实验开发、PS端开发 & 负责扩展实验 00、01、04 的代码编写与调试；综合拓展任务中 PS 端程序修改和地址规划，包括 \verb|main.c|、控制字地址迁移、BRAM 地址布局；整理仿真报告和综合报告。 & 25\% \\
 \midrule
-肖任科 & 上位机开发、PPT制作 & 负责综合扩展任务中上位机代码修改，包括输入读取、图片预处理、GUI 控件整理和演示材料汇总；制作课程汇报 PPT。 & 25\% \\
+肖任科 & 上位机开发、PPT制作 & 负责综合拓展任务中上位机代码修改，包括 \verb|camera_uart_sender.py| 的缩放函数、\verb|camera_uart_gui.py| 的尺寸预设界面与缩放策略选择；整理演示 PPT 和汇报材料。 & 25\% \\
 \midrule
-陈智恒 & 仿真验证、视频制作、时序分析 & 负责显示控制相关仿真验证、Vivado 资源占用和时序截图整理；完成演示视频剪辑与后期制作。 & 25\% \\
+陈智恒 & 仿真验证、视频制作、时序分析 & 负责显示控制行为模型与自动化验证用例编写；整理综合拓展 Vivado 时序分析，包括 Setup、Hold、Pulse Width；统计资源占用；完成演示视频剪辑与后期制作。 & 25\% \\
 \bottomrule
 \end{longtable}
 
-\section{实验五系统总体设计}
+\section{实验0：Sobel RTL 仿真}
 
-\subsection{系统数据流}
+\subsection{实验目标与数据格式}
 
-实验五是在 UART 图像输入和 Sobel HDMI 显示的基础上加入显示控制。系统的数据流如图 \ref{fig:system-flow} 所示。PC 上位机负责读取图片或摄像头画面，将其转换为 \verb|128 x 72| 的 RGB888 数据帧；同时，上位机也可以发送控制帧。PS 端负责串口接收与帧解析，把图像数据写入 BRAM 图像区，把显示模式、阈值和叠加开关写入 BRAM 控制区。PL 端根据 BRAM 中的数据完成图像读取、灰度转换、Sobel 边缘检测和显示输出。
+实验 0 是后续上板实验的预验证。该实验不依赖 HDMI 或开发板，直接用 testbench 生成 UART 字节流，驱动 \verb|uart_rx|、\verb|image_frame_rx|、\verb|rgb_to_gray|、\verb|sobel_core| 和视频输出模型，最后把处理结果导出为图像文件。
 
-\begin{figure}[H]
-\centering
-\begin{tikzpicture}[
-    node distance=1.25cm,
-    block/.style={draw, rounded corners, align=center, minimum width=2.35cm, minimum height=0.9cm, fill=gray!8},
-    arrow/.style={->, thick}
-]
-\node[block] (pc) {PC 上位机\\图片/摄像头/控制};
-\node[block, right=of pc] (uart) {UART\\图像帧/控制帧};
-\node[block, right=of uart] (ps) {PS 端程序\\帧解析与写 BRAM};
-\node[block, right=of ps] (bram) {AXI BRAM\\图像区/控制区};
-\node[block, below=of bram] (pl) {PL 图像流水线\\灰度/Sobel/模式选择};
-\node[block, left=of pl] (hdmi) {HDMI\\显示器输出};
-\draw[arrow] (pc) -- (uart);
-\draw[arrow] (uart) -- (ps);
-\draw[arrow] (ps) -- (bram);
-\draw[arrow] (bram) -- (pl);
-\draw[arrow] (pl) -- (hdmi);
-\end{tikzpicture}
-\caption{实验五系统数据流}
-\label{fig:system-flow}
-\end{figure}
-
-这一结构的好处是 PS 和 PL 分工比较清楚。PS 端适合处理串口协议、帧头检查和控制字更新；PL 端适合做固定时序的像素读取、流水线处理和 HDMI 输出。控制信息写入 BRAM 后，PL 不需要直接处理 UART 协议，只需要读取约定地址中的控制字。
-
-\subsection{UART 图像帧与控制帧}
-
-图像帧仍沿用前面实验的行传输方式。每帧先发送帧头，帧头中包含宽度、高度和 RGB888 格式标记；随后逐行发送行头和像素数据。基础规格下，一帧图像包含 $128 \times 72 = 9216$ 个像素，每个像素 3 字节。
+仿真使用的图像格式为 \verb|128 x 72|、RGB888。UART 图像帧采用小端宽高字段，帧头和行头如下：
 
 \begin{lstlisting}[language={},caption={UART 图像帧格式}]
 frame header: 55 AA width_l width_h height_l height_h 18
@@ -189,284 +164,294 @@ line header : 33 CC row_l row_h
 pixel data  : R G B, repeated 128 times per row
 \end{lstlisting}
 
-控制帧使用另一组同步头，与图像帧区分。实验中使用 \verb|A5 5A cmd value| 表示一次控制命令，其中 \verb|cmd=1| 表示显示模式，\verb|cmd=2| 表示阈值，\verb|cmd=3| 表示彩色叠加开关。
+其中 \verb|18| 表示 RGB888 格式。testbench 除了正常图像外，也构造了错误帧头、错误格式和错误行号等情况，用来确认接收状态机不会把异常数据继续送入 Sobel 处理链路。
 
-\begin{lstlisting}[language={},caption={UART 控制帧格式}]
-control header: A5 5A
-cmd = 1: display mode
-cmd = 2: sobel threshold
-cmd = 3: overlay enable
-value: command value
+\subsection{关键模块}
+
+\begin{itemize}
+    \item \verb|uart_rx|：按照设定波特率恢复串口数据，输出 8 位并行字节和有效脉冲。
+    \item \verb|image_frame_rx|：识别帧头、行头、行号和 RGB 像素，输出像素坐标及 RGB 数据。
+    \item \verb|rgb_to_gray|：将 RGB888 转换为灰度数据，为 Sobel 核心准备输入。
+    \item \verb|sobel_core|：维护 3 行窗口，计算横向与纵向梯度，并输出边缘强度。
+    \item \verb|video_stream_model|：模拟一帧视频输出，生成 \verb|sobel_out.pgm| 和波形结束信号。
+\end{itemize}
+
+\subsection{仿真结果}
+
+\figtwocol{exp0_input.png}{默认输入图像}{exp0_sobel.png}{默认 Sobel 输出}{实验0默认图像仿真结果}{fig:exp0-default}
+
+默认图像包含矩形边框和对角线，边缘比较清楚，适合观察 Sobel 输出是否只在亮暗变化处产生响应。图 \ref{fig:exp0-default} 中可以看到，输出结果保留了输入图像的主要边缘，说明灰度转换和 Sobel 计算链路能够正常工作。
+
+\figtwocol{exp0_alt_input.png}{扩展输入图像}{exp0_alt_sobel.png}{扩展输入 Sobel 输出}{实验0更换输入图像后的结果}{fig:exp0-alt}
+
+更换输入图案后，Sobel 输出随图像结构变化，边缘响应集中在亮度突变的位置。这一部分主要用于确认处理链路不是只对默认样例有效。
+
+\subsection{关键波形}
+
+\figone{0.96}{exp0_wave_full.png}{实验0完整仿真波形}{fig:exp0-wave-full}
+
+完整波形用于确认一帧图像从 UART 输入到视频输出的全流程，重点观察帧开始、像素有效、灰度有效、边缘有效和帧结束信号之间的时序关系。
+
+\figone{0.82}{exp0_wave_local.png}{实验0局部有效信号波形}{fig:exp0-wave-local}
+
+局部波形放大后可以更直观看到流水线延迟：\verb|rgb_valid| 先拉高，随后 \verb|gray_valid|、\verb|edge_valid| 和 \verb|video_valid| 依次出现。该现象符合图像处理流水线逐级寄存的特点，也说明各模块之间的 valid 信号没有乱序。
+
+\section{实验1：HDMI 固定图案显示}
+
+\subsection{基础功能}
+
+实验 1 的重点是先把 HDMI 时序跑通。PL 端根据像素坐标生成固定测试图案，输出到 HDMI 显示器。这个实验虽然没有 Sobel 算法，但它验证了像素时钟、行场同步、坐标计数和 RGB 输出，是后续所有显示实验的基础。
+
+\figtwocol{exp1_basic.jpg}{基础图案显示}{exp1_extend.jpg}{红色边框扩展}{实验1基础与扩展现象}{fig:exp1-phenomenon}
+
+\subsection{扩展实现}
+
+扩展功能是在原 HDMI 图案上加入红色边框。实现时在 \verb|hdmi_image_display.v| 中根据当前像素坐标判断是否位于边框区域：若位于边框，则输出红色；否则保持原图案显示。该修改只影响 RGB 选择逻辑，不改变 HDMI 时序和分辨率参数。
+
+\begin{lstlisting}[style=Verilog,caption={实验1红色边框逻辑示意}]
+wire border_on;
+assign border_on = (x >= BORDER_X0 && x < BORDER_X1 &&
+                    y >= BORDER_Y0 && y < BORDER_Y1) &&
+                   (x < BORDER_X0 + BORDER_W ||
+                    x >= BORDER_X1 - BORDER_W ||
+                    y < BORDER_Y0 + BORDER_W ||
+                    y >= BORDER_Y1 - BORDER_W);
+
+assign rgb_out = border_on ? 24'hFF0000 : pattern_rgb;
 \end{lstlisting}
 
-由于图像帧和控制帧使用不同帧头，PS 端可以在同一个串口接收流程中区分数据类型。图像帧进入 BRAM 图像区，控制帧更新控制字，不会互相覆盖。
+\subsection{资源与时序}
 
-\subsection{显示模式设计}
+\figtwocol{exp1_utilization.png}{资源占用}{exp1_timing.png}{时序结果}{实验1综合实现结果}{fig:exp1-timing}
 
-实验五保留四种显示模式：
+从资源占用看，边框判断只增加少量比较和组合选择逻辑；从时序看，工程能够完成综合和实现，说明该扩展没有破坏原有 HDMI 显示链路。
 
-\begin{table}[H]
-\centering
-\caption{显示模式说明}
-\begin{tabular}{p{0.18\textwidth}p{0.20\textwidth}p{0.48\textwidth}}
-\toprule
-模式 & 上位机选项 & HDMI 输出含义 \\
-\midrule
-原图 & original & 直接显示 BRAM 中的 RGB 图像，用来确认输入图像是否正确写入。 \\
-灰度 & gray & 显示 RGB 转灰度后的结果，用来观察灰度转换是否正常。 \\
-边缘 & edge & 显示 Sobel 边缘检测结果，阈值越高，保留的强边缘越少。 \\
-叠加 & overlay & 在原图基础上叠加彩色边缘，用来直观看边缘与原图位置是否对齐。 \\
-\bottomrule
-\end{tabular}
-\end{table}
+\section{实验2：HDMI Sobel 边缘检测}
 
-阈值控制只影响边缘判断，不改变原图和灰度图本身。彩色叠加模式下，PL 端先计算 Sobel 边缘强度，再根据阈值判断是否在原图上叠加边缘颜色。
+\subsection{基础功能}
 
-\section{实验五基础功能实现与上板结果}
+实验 2 在 HDMI 图像显示的基础上加入 Sobel 边缘检测。图像数据在 PL 端经过灰度转换和 Sobel 核心后，显示边缘检测结果。该实验的重点是把实验 0 已经验证过的图像处理模块接入真实 HDMI 显示链路。
 
-\subsection{上位机界面与图像发送}
+\figtwocol{exp2_basic.jpg}{基础 Sobel 显示}{exp2_extend.jpg}{反色边缘显示}{实验2基础与扩展现象}{fig:exp2-phenomenon}
 
-实验五基础部分使用上位机控制程序发送图像和控制命令。界面中可以选择串口号、波特率、输入来源、图像尺寸、发送方式、显示模式、阈值以及是否叠加边缘。实际使用时，先保证 SDK 程序已经下载运行，串口助手或上位机只能有一个占用串口；随后在上位机中选择 COM 口和输入图像，点击发送即可。
+\subsection{扩展实现}
 
-\figtwo{exp5_basic_docx/exp5_basic_docx_04.png}{上位机与串口控制界面}{exp5_basic_docx/exp5_basic_docx_05.png}{基础图像发送与 HDMI 显示}{实验五基础功能：上位机发送与显示结果}{fig:exp5-basic-gui}
+扩展功能为 Sobel 结果反色显示。原本边缘强度越高，显示越亮；反色后重新计算显示灰度，使背景与边缘明暗关系反过来。这个修改位于显示输出阶段，不改变 Sobel 计算本身。
 
-图 \ref{fig:exp5-basic-gui} 记录了上位机发送图像以及 HDMI 端显示的基础结果。图像发送后，PS 端能够接收完整帧并写入 BRAM，PL 端能够读取 BRAM 并输出到 HDMI。这个结果说明 UART、PS 写入、BRAM 缓存和 HDMI 读取链路已经连通。
+\begin{lstlisting}[style=Verilog,caption={实验2边缘反色逻辑示意}]
+wire [7:0] edge_inv;
+assign edge_inv = 8'hFF - edge_pixel;
 
-\subsection{模式切换结果}
+assign rgb_out = {edge_inv, edge_inv, edge_inv};
+\end{lstlisting}
 
-实验五基础功能的重点不是只显示一张图，而是能通过上位机实时切换显示模式。图 \ref{fig:exp5-modes} 给出了几种模式的上板现象。原图模式用于确认输入图像，灰度模式用于确认 RGB 转灰度，边缘模式用于观察 Sobel 输出，叠加模式则把边缘结果重新叠到原图上。
+\subsection{资源与时序}
+
+\figtwocol{exp2_utilization.png}{资源占用}{exp2_timing.png}{时序结果}{实验2综合实现结果}{fig:exp2-timing}
+
+反色显示只增加一个减法和输出选择，资源变化很小。上板现象中，边缘区域和背景区域的亮暗关系与基础版本相反，说明修改生效。
+
+\section{实验3：UART 图像输入与 HDMI 显示}
+
+\subsection{基础功能}
+
+实验 3 开始引入 PS 端和 UART。PC 端上位机将图片或摄像头画面转成 \verb|128 x 72| RGB888 字节流，通过串口发送；PS 端接收并写入 BRAM；PL 端从 BRAM 读取像素，经 HDMI 放大显示。
 
 \begin{figure}[H]
 \centering
-\subfigure[原图/输入显示]{\includegraphics[width=0.46\textwidth]{exp5_basic_docx/exp5_basic_docx_09.jpeg}}
-\subfigure[灰度显示]{\includegraphics[width=0.46\textwidth]{exp5_basic_docx/exp5_basic_docx_10.jpeg}}
-\subfigure[边缘显示]{\includegraphics[width=0.46\textwidth]{exp5_basic_docx/exp5_basic_docx_11.jpeg}}
-\subfigure[彩色叠加显示]{\includegraphics[width=0.46\textwidth]{exp5_basic_docx/exp5_basic_docx_12.jpeg}}
-\caption{实验五基础功能：不同显示模式上板结果}
-\label{fig:exp5-modes}
+\subfigure[图像传输显示]{\includegraphics[width=0.31\textwidth]{exp3_basic1.jpg}}
+\subfigure[串口信息记录]{\includegraphics[width=0.31\textwidth]{exp3_basic2.jpg}}
+\subfigure[摄像头输入显示]{\includegraphics[width=0.31\textwidth]{exp3_basic3.jpg}}
+\caption{实验3基础功能现象}
+\label{fig:exp3-basic}
 \end{figure}
 
-从现象上看，灰度图和原图结构一致；边缘模式能够提取出图像中明显的轮廓；彩色叠加模式中，边缘与原图位置基本重合，说明图像读取坐标、Sobel 处理结果和 HDMI 显示坐标之间没有明显错位。
+从串口记录可以看到 PS 端处于等待帧头、接收帧、写 BRAM 的流程；从 HDMI 显示可以看到 PC 端输入图像已经显示到屏幕上。这个实验验证了 UART 帧协议和 BRAM 图像缓存链路。
 
-\subsection{阈值控制与彩色叠加}
+\subsection{扩展实现}
 
-阈值控制用于调节 Sobel 边缘输出的强弱。阈值较低时，弱边缘也容易被保留下来，画面中边缘较多；阈值较高时，只有强边缘被保留，画面会更干净。这个功能对演示比较重要，因为不同输入图像的亮度和对比度不同，固定阈值不一定都合适。
+实验 3 的扩展是在显示图像周围增加红色边框，并通过坐标偏移把低分辨率输入图像放置在 HDMI 输出区域的指定位置。主要修改在 \verb|hdmi_bram_display.v|：根据显示坐标计算映射后的图像坐标，判断是否位于图像区域或边框区域，再选择输出原图像、红色边框或背景。
 
-彩色叠加本质上是在原图 RGB 输出阶段增加一次选择：如果当前像素的 Sobel 强度超过阈值，则输出预设边缘颜色；否则输出原图像素。这样既能看到边缘，也能保留原图内容，比单独的黑白边缘图更直观。
+\figone{0.62}{exp3_extend.jpg}{实验3红色边框扩展显示}{fig:exp3-extend}
 
-\begin{lstlisting}[style=Verilog,caption={彩色边缘叠加逻辑示意}]
-wire edge_on;
-assign edge_on = (sobel_value > threshold);
-
-always @(*) begin
-    case (display_mode)
-        2'd0: rgb_out = rgb_original;
-        2'd1: rgb_out = {gray, gray, gray};
-        2'd2: rgb_out = {edge, edge, edge};
-        2'd3: rgb_out = edge_on ? EDGE_COLOR : rgb_original;
-    endcase
-end
-\end{lstlisting}
-
-这一段逻辑在硬件上并不复杂，但它要求前面的图像坐标、灰度流水线和 Sobel 输出都保持同步。如果延迟没有对齐，叠加边缘会相对原图偏移。因此，叠加显示也是检查整条图像流水线对齐情况的一个办法。
-
-\section{第二周综合扩展设计}
-
-\subsection{任务选择}
-
-第二周综合扩展选择的是“基于 \verb|sobel_05| 的上位机与输入规格扩展”。老师给出的建议方向中包括输入来源、输入尺寸、缩放裁剪策略、PS/PL 图像尺寸适配等内容。结合实验时间和已有工程稳定性，本组实际完成的重点是上位机侧输入格式扩展：在不破坏实验五原有 FPGA 显示控制链路的前提下，让上位机支持新增图片格式输入，并在发送前统一转换为工程支持的 RGB888 图像帧。
-
-这里采用的策略是“上位机预处理优先”。FPGA 端仍按当前工程支持的图像规格进行接收和显示；不同格式的输入图片先由 PC 端读取、解码、缩放，再通过 UART 发送。这样做的原因很直接：图片格式解析、缩放和文件读取更适合放在 PC 上位机完成；如果把这些工作放进 FPGA 或 PS 端，会明显增加开发量和调试风险。
-
-\subsection{扩展前后对比}
-
-\begin{table}[H]
-\centering
-\caption{综合扩展前后对比}
-\begin{tabular}{p{0.24\textwidth}p{0.30\textwidth}p{0.30\textwidth}}
-\toprule
-项目 & 扩展前 & 扩展后 \\
-\midrule
-输入方式 & 以原有图片/摄像头发送流程为主 & 保留原流程，增加新的图片格式输入支持 \\
-图像进入 FPGA 的方式 & 上位机转为 RGB888 后 UART 发送 & 新增格式先在上位机解码和预处理，再转 RGB888 发送 \\
-显示控制 & 原图、灰度、边缘、叠加，支持阈值 & 保持不变，扩展后仍可用 \\
-FPGA 图像处理链路 & BRAM 读取、灰度、Sobel、HDMI 显示 & 保持不变，降低硬件改动风险 \\
-主要验证方式 & 上板显示与串口信息 & 新格式图片输入、模式切换、阈值与叠加显示验证 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-扩展工作的重点不是重新设计 Sobel 硬件，而是让输入端更灵活。最终进入 FPGA 的仍是 RGB888 像素流，这样可以复用实验五已经跑通的 UART 帧协议、PS 写 BRAM 逻辑和 PL 显示流水线。
-
-\subsection{上位机处理流程}
-
-扩展后的上位机处理流程如图 \ref{fig:host-flow} 所示。用户选择输入文件后，程序先用 OpenCV 解码图片；如果原图尺寸与 FPGA 工程目标规格不一致，则进行缩放；随后转换为 RGB888，并按 UART 帧格式逐行发送。
+\subsection{资源、时序与串口验证}
 
 \begin{figure}[H]
 \centering
-\begin{tikzpicture}[
-    node distance=1.15cm,
-    block/.style={draw, rounded corners, align=center, minimum width=2.35cm, minimum height=0.85cm, fill=gray!8},
-    arrow/.style={->, thick}
-]
-\node[block] (file) {新增格式图片\\文件输入};
-\node[block, right=of file] (decode) {OpenCV\\读取解码};
-\node[block, right=of decode] (resize) {缩放/预处理\\目标尺寸};
-\node[block, below=of resize] (rgb) {RGB888\\像素帧};
-\node[block, left=of rgb] (uart) {UART\\逐行发送};
-\node[block, left=of uart] (fpga) {FPGA\\接收与显示};
-\draw[arrow] (file) -- (decode);
-\draw[arrow] (decode) -- (resize);
-\draw[arrow] (resize) -- (rgb);
-\draw[arrow] (rgb) -- (uart);
-\draw[arrow] (uart) -- (fpga);
-\end{tikzpicture}
-\caption{上位机输入格式扩展处理流程}
-\label{fig:host-flow}
+\subfigure[资源占用]{\includegraphics[width=0.32\textwidth]{exp3_utilization.png}}
+\subfigure[时序结果]{\includegraphics[width=0.32\textwidth]{exp3_timing.png}}
+\subfigure[串口信息]{\includegraphics[width=0.32\textwidth]{exp3_serial.png}}
+\caption{实验3资源、时序与串口验证}
+\label{fig:exp3-timing}
 \end{figure}
 
-上位机侧保留了原有控制命令，因此扩展后仍然可以选择 \verb|original|、\verb|gray|、\verb|edge|、\verb|overlay|，也可以修改阈值。输入格式扩展只影响“图像从文件进入发送缓冲区”这一段，不改变后续 UART 控制命令格式。
+该实验的调试重点在串口占用和帧格式一致性。上位机发送时串口会被占用，不能同时用串口助手打开同一个 COM 口；需要在上位机停止或关闭后，再用串口助手查看 PS 端打印信息。
 
-\subsection{关键代码思路}
+\section{实验4：UART Sobel 图像处理与 HDMI 显示}
 
-上位机程序中对输入文件格式进行统一管理，图片读取完成后再进行尺寸处理。核心思想是：不把文件格式差异传给 FPGA，FPGA 只接收统一的 RGB888 像素帧。
+\subsection{基础功能}
 
-\begin{lstlisting}[language=Python,caption={上位机新增图片格式支持思路}]
-IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp"}
+实验 4 把实验 3 的 UART 图像输入和实验 2 的 Sobel 处理组合起来。PC 端发送图片或摄像头画面，PS 写入 BRAM，PL 端读取后进行灰度和 Sobel 计算，最后 HDMI 显示边缘结果。
 
-frame_bgr = cv2.imread(image_path, cv2.IMREAD_COLOR)
-if frame_bgr is None:
-    raise RuntimeError("failed to open image")
+\figtwocol{exp4_camera.jpg}{摄像头输入边缘显示}{exp4_image.jpg}{图片输入边缘显示}{实验4基础功能现象}{fig:exp4-basic}
 
-frame_bgr = scale_frame_to_target(frame_bgr, target_w, target_h)
-frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-send_frame_by_line(serial_port, frame_rgb)
-\end{lstlisting}
+两种输入来源都能显示出明显边缘，说明 UART 输入、BRAM 缓存、Sobel 核心和 HDMI 输出之间能够连续工作。
 
-缩放策略采用上位机完成。对于输入图片与目标比例不一致的情况，可以选择直接拉伸、保持比例填充或裁剪。实际演示时优先使用稳定的缩放方式，保证 FPGA 端收到的帧尺寸和工程配置一致。
+\subsection{扩展实现}
 
-\begin{lstlisting}[language=Python,caption={缩放策略示意}]
-def scale_frame_to_target(frame_bgr, target_w, target_h, mode="fit"):
-    if mode == "stretch":
-        return cv2.resize(frame_bgr, (target_w, target_h))
-    elif mode == "crop":
-        # center crop after resize
-        pass
-    else:
-        # keep aspect ratio and pad with black
-        pass
-\end{lstlisting}
+扩展功能仍然采用反色显示思路，但这一次反色作用在 UART 输入图像的 Sobel 结果上。由于输入图像来自 PC 端，实际效果比固定图案更能体现边缘检测在不同图片上的变化。
 
-\section{综合扩展仿真与上板结果}
+\figone{0.62}{exp4_extend.jpg}{实验4 Sobel 反色扩展显示}{fig:exp4-extend}
 
-\subsection{上位机界面验证}
-
-图 \ref{fig:exp5-gui} 展示了扩展后的上位机界面。界面保留串口选择、输入来源、尺寸设置、预览和发送控制，同时保留实验五显示控制区。发送图像后，状态栏会更新发送帧数，预览区显示预处理后的画面。
-
-\figthree{exp5_gui1.png}{上位机图片输入}{exp5_gui2.png}{上位机参数设置}{exp5_gui3.png}{发送预览与状态}{综合扩展上位机界面}{fig:exp5-gui}
-
-上位机验证主要看三点：第一，新增图片格式能够被程序读取；第二，预览图像能正常显示，说明解码和缩放成功；第三，发送后状态正常更新，说明 UART 发送流程没有被输入扩展破坏。
-
-\subsection{输入格式扩展结果}
-
-图 \ref{fig:exp5-extend-input} 记录了扩展输入的测试过程。新增格式图片先在 PC 上位机侧完成读取和预处理，再作为 RGB888 帧发送给 FPGA。由于 FPGA 端接收到的仍然是标准像素流，因此后续显示模式切换和阈值控制保持可用。
-
-\figtwo{exp5_extend_docx/exp5_extend_docx_03.png}{新增图片输入与预处理}{exp5_extend_docx/exp5_extend_docx_04.png}{不同预处理策略对比}{综合扩展：新增输入格式与预处理验证}{fig:exp5-extend-input}
-
-这部分验证说明，输入端扩展没有改变 FPGA 的基本接口约定。只要上位机最终送出的帧头、宽高、格式字段和像素数量正确，PS/PL 端就能按原链路处理。
-
-\subsection{显示控制保持可用}
-
-扩展完成后，实验五原有的显示控制仍然需要验证。图 \ref{fig:exp5-extend-mode} 给出了扩展后灰度、边缘和叠加模式的现象。可以看到，新增输入格式经过预处理后仍能进入 Sobel 显示链路，不同显示模式切换正常。
-
-\figthree{exp5_extend_docx/exp5_extend_docx_16.png}{灰度模式}{exp5_extend_docx/exp5_extend_docx_17.png}{边缘模式}{exp5_extend_docx/exp5_extend_docx_18.png}{叠加模式}{综合扩展后显示控制结果}{fig:exp5-extend-mode}
-
-从现象判断，边缘模式和叠加模式均能响应输入图像内容，说明 Sobel 处理和模式选择没有因为上位机扩展而失效。阈值改变时，边缘保留程度也会随之变化，符合实验五基础功能的预期。
-
-\subsection{上板演示结果}
-
-上板演示时，开发板通过 HDMI 连接显示器，上位机通过串口发送图像和控制命令。实际操作流程为：先在 Vivado 下载 bitstream，再在 SDK 中运行 PS 程序，确认串口输出等待帧头信息；随后关闭串口助手，打开上位机，选择图片输入和显示模式，发送图像。
+\subsection{资源、时序与串口验证}
 
 \begin{figure}[H]
 \centering
-\subfigure[基础图像显示]{\includegraphics[width=0.46\textwidth]{exp5_basic_docx/exp5_basic_docx_13.jpeg}}
-\subfigure[扩展后显示结果]{\includegraphics[width=0.46\textwidth]{exp5_extend_docx/exp5_extend_docx_20.png}}
-\caption{实验五上板演示结果}
-\label{fig:exp5-board}
+\subfigure[资源占用]{\includegraphics[width=0.32\textwidth]{exp4_utilization.png}}
+\subfigure[时序结果]{\includegraphics[width=0.32\textwidth]{exp4_timing.png}}
+\subfigure[串口信息]{\includegraphics[width=0.32\textwidth]{exp4_serial.png}}
+\caption{实验4资源、时序与串口验证}
+\label{fig:exp4-timing}
 \end{figure}
 
-上板现象中，HDMI 能够显示输入图像及其处理结果；上位机切换模式后，显示内容随之变化。虽然最终没有大幅修改 PL 端图像尺寸处理逻辑，但输入格式扩展已经在上位机侧完成，并通过原有 UART/BRAM/HDMI 链路完成显示验证。
+实验 4 的现象说明，在真实输入图像下，边缘检测结果仍能保持稳定输出。资源占用相比实验 3 增加，主要来自灰度转换、行缓存和 Sobel 计算逻辑。
 
-\section{资源利用率、时序结果与性能分析}
+\section{实验5：PC 控制显示与综合拓展}
 
-\subsection{资源利用率}
+\subsection{基础功能}
 
-\figone{0.86}{exp5_utilization.png}{实验五综合扩展资源利用率}{fig:exp5-util}
+实验 5 在实验 4 的基础上加入显示控制。上位机不仅发送图像，还能发送控制命令，让 FPGA 端切换原图、灰度、边缘、叠加等显示模式，并调整 Sobel 阈值。PS 端通过控制帧解析命令，将模式、阈值和叠加开关写入 BRAM 后部的控制地址；PL 端显示模块读取这些控制字，改变输出画面。
 
-从图 \ref{fig:exp5-util} 可以看到，工程资源主要消耗在 LUT、FF 和 BRAM 上。BRAM 用于图像缓存以及 PS/PL 控制字交换；LUT 和 FF 主要用于 HDMI 时序、BRAM 读写控制、灰度转换、Sobel 计算和显示模式选择。实验五相比前面实验增加了控制通路和显示选择逻辑，因此资源占用会高于单纯 HDMI 图案显示，但仍处于 ZYNQ7020 资源范围内。
+\begin{lstlisting}[language=C,caption={实验5 PS 端控制地址定义}]
+#define CTRL_MODE_ADDR      (FRAMEBUFFER_BASEADDR + 0x9000U)
+#define CTRL_THRESHOLD_ADDR (FRAMEBUFFER_BASEADDR + 0x9004U)
+#define CTRL_OVERLAY_ADDR   (FRAMEBUFFER_BASEADDR + 0x9008U)
+\end{lstlisting}
 
-上位机输入格式扩展本身不会明显增加 FPGA 资源，因为图片解码和预处理放在 PC 侧完成。这个设计取舍比较适合课程实验：硬件侧保持稳定，输入侧灵活性由软件承担，调试成本低一些。
+控制帧采用 \verb|A5 5A cmd value| 形式，其中 \verb|cmd=1| 表示显示模式，\verb|cmd=2| 表示阈值，\verb|cmd=3| 表示叠加开关。这样做的好处是图像数据帧和控制命令帧可以共用同一个 UART 通道，但解析状态机可以通过不同帧头区分。
 
-\subsection{时序结果}
+\begin{figure}[H]
+\centering
+\subfigure[上位机与串口控制]{\includegraphics[width=0.46\textwidth]{exp5_basic_docx/exp5_basic_docx_04.png}}
+\subfigure[摄像头/图片显示]{\includegraphics[width=0.46\textwidth]{exp5_basic_docx/exp5_basic_docx_05.png}}
+\caption{实验5基础功能联调记录}
+\label{fig:exp5-basic-gui}
+\end{figure}
 
-\figone{0.86}{exp5_timing.png}{实验五综合扩展时序结果}{fig:exp5-timing}
+\begin{figure}[H]
+\centering
+\subfigure[灰度显示]{\includegraphics[width=0.30\textwidth]{exp5_basic_docx/exp5_basic_docx_10.jpeg}}
+\subfigure[边缘显示]{\includegraphics[width=0.30\textwidth]{exp5_basic_docx/exp5_basic_docx_11.jpeg}}
+\subfigure[叠加显示]{\includegraphics[width=0.30\textwidth]{exp5_basic_docx/exp5_basic_docx_12.jpeg}}
+\caption{实验5不同显示模式现象}
+\label{fig:exp5-basic-modes}
+\end{figure}
 
-时序分析主要关注 Setup、Hold 和 Pulse Width。实验截图显示工程可以完成综合实现并生成 bitstream，说明当前设计在实验使用的时钟约束下可以进行上板验证。实际演示中 HDMI 能够稳定输出画面，也从现象上说明像素时钟、BRAM 读取和显示控制链路能够连续工作。
+在基础功能验证中，原图、灰度、边缘和叠加模式都能通过上位机切换；阈值改变后，边缘提取的粗细和保留程度也会变化。这个实验把前面几次单独验证过的 UART、BRAM、Sobel 和 HDMI 显示串成了可交互系统。
 
-需要注意的是，课程实验中的串口传输速率较低，整体帧率主要受 UART 速度限制，而不是 Sobel 计算本身。PL 端图像处理是流水线结构，一旦图像已经进入 BRAM，灰度、边缘和显示模式选择可以按像素时钟连续输出；真正耗时的是 PC 到 PS 的串口传输过程。
+\subsection{综合拓展目标}
 
-\subsection{性能瓶颈分析}
+综合拓展选择“基于 \verb|sobel_05| 的上位机与输入规格扩展”。本组实际完成的重点是上位机侧输入规格改造：在原来固定 \verb|128 x 72| 的基础上，加入目标尺寸选择、缩放策略选择和新增图片输入规格验证，同时保持实验 5 原有显示控制命令可用。
 
-本系统主要瓶颈有三个：
+这里需要说明一点：最终上板验证仍以原硬件链路的 \verb|128 x 72| 为主，新增尺寸和缩放策略主要在上位机预处理与发送链路中完成验证。也就是说，扩展的主思路是“上位机统一预处理后再送入 FPGA”，而不是完全重写 PL 端 HDMI 放大和 BRAM 地址计算。这样可以在不大幅增加硬件改动风险的前提下，完成输入来源与输入规格的扩展验证。
 
-\begin{enumerate}
-    \item 串口带宽。基础图像为 $128 \times 72$，RGB888 一帧约 27 KB，加上帧头和行头后传输时间较明显。如果波特率保持 115200，刷新速度不适合高帧率视频。
-    \item 上位机预处理。新增图片格式需要先解码、缩放再发送。对单张图片影响不大；若输入视频或摄像头连续帧，则上位机处理和串口发送会共同限制刷新速度。
-    \item BRAM 地址和显示坐标约定。PS 写入地址、PL 读取地址和 HDMI 坐标映射必须一致，否则会出现图像错位、花屏或显示不刷新。
-\end{enumerate}
+\subsection{上位机输入规格扩展}
 
-从课程设计目标来看，当前性能已经能满足功能演示。若后续继续优化，可以考虑提高 UART 波特率、使用更高带宽接口，或者在 PS/PL 之间采用更完整的 DMA 图像传输方案。
+上位机改动集中在 \verb|camera_uart_sender.py| 和 \verb|camera_uart_gui.py|。命令行版本加入尺寸预设和缩放模式，GUI 版本加入 Size preset、Width、Height、Fit 等控件。新增的尺寸预设如下：
 
-\section{问题记录与处理}
+\begin{lstlisting}[language=Python,caption={上位机尺寸预设}]
+SIZE_PRESETS = {
+    "128x72":  (128, 72),
+    "128x80":  (128, 80),
+}
+\end{lstlisting}
+
+缩放策略分为三种：
+
+\begin{itemize}
+    \item \verb|fit|：保持比例缩放，空白处用黑边填充；
+    \item \verb|stretch|：直接拉伸到目标尺寸，画面可能变形；
+    \item \verb|crop|：保持比例并居中裁剪，画面填满目标区域。
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\subfigure[128x80 stretch]{\includegraphics[width=0.46\textwidth]{exp5_extend_docx/exp5_extend_docx_03.png}}
+\subfigure[128x80 crop]{\includegraphics[width=0.46\textwidth]{exp5_extend_docx/exp5_extend_docx_04.png}}
+\caption{实验5拓展：新增输入规格与缩放策略}
+\label{fig:exp5-extend-size}
+\end{figure}
+
+从图 \ref{fig:exp5-extend-size} 可以看到，同一张原始图片在不同缩放策略下会进入不同的预处理结果。对于 FPGA 端而言，接收的仍是连续 RGB888 像素流；差异主要体现在上位机送出的像素内容。
+
+\subsection{显示控制保持兼容}
+
+综合拓展没有去掉实验 5 的显示控制。GUI 中仍然可以选择 \verb|original|、\verb|gray|、\verb|edge|、\verb|overlay|，并设置阈值。上位机发送图像前或发送过程中都可以排队控制命令，PS 端收到后更新控制字。
+
+\begin{figure}[H]
+\centering
+\subfigure[灰度模式]{\includegraphics[width=0.30\textwidth]{exp5_extend_docx/exp5_extend_docx_16.png}}
+\subfigure[边缘模式]{\includegraphics[width=0.30\textwidth]{exp5_extend_docx/exp5_extend_docx_17.png}}
+\subfigure[叠加模式]{\includegraphics[width=0.30\textwidth]{exp5_extend_docx/exp5_extend_docx_18.png}}
+\caption{实验5拓展后显示控制仍可使用}
+\label{fig:exp5-extend-control}
+\end{figure}
+
+阈值控制也保留了下来。阈值越低，更多弱边缘会被保留；阈值越高，只保留强边缘。这个现象在演示中通过多组阈值切换完成验证。
+
+\subsection{实验五资源与时序}
+
+\figtwocol{exp5_utilization.png}{综合拓展资源占用}{exp5_timing.png}{综合拓展时序摘要}{实验5综合拓展综合实现结果}{fig:exp5-resource}
+
+从资源占用看，综合拓展仍然主要消耗 LUT、FF 和 BRAM。BRAM 用于图像缓存，逻辑资源用于 HDMI 时序、灰度/Sobel 流水线和控制选择。时序报告中 Setup、Hold 和 Pulse Width 是主要关注项；在实际演示中，系统能够完成 bitstream 生成、SDK 下载和上板显示，说明设计在当前实验频率下可以运行。
+
+\section{调试问题与处理}
 
 \subsection{串口占用问题}
 
-调试时最容易遇到的问题是串口被多个软件同时占用。例如上位机正在发送图像时，串口助手无法再打开同一个 COM 口；反过来，如果串口助手已经打开，上位机发送会失败。处理方法是一次只保留一个串口程序连接：需要看 PS 端打印信息时打开串口助手；需要发送图像时关闭串口助手，改用上位机程序连接。
+UART 实验中最容易遇到的问题是串口被多个程序同时打开。例如上位机正在向 COM 口发送图像时，串口助手无法同时打开该端口；反过来，如果串口助手占用了端口，上位机也会发送失败。处理方法是一次只保留一个串口程序连接，观察调试信息时先停止上位机发送。
 
-\subsection{SDK 运行和只读工作区问题}
+\subsection{图像尺寸与帧格式问题}
 
-Vivado 导出硬件后启动 SDK 时，曾遇到工作区目录只读导致 SDK 报错的问题。后续处理方式是更换可写工作区，或者清理只读属性后再启动 SDK。PS 程序运行时，需要先确认 bitstream 已经下载到 FPGA，再在 SDK 中选择对应的应用工程运行。
+基础工程对图像尺寸要求严格，PS 端会检查宽度、高度和 RGB888 格式。如果上位机发送的帧头尺寸和工程定义不一致，PS 会拒绝接收或等待下一帧。综合拓展中因此采用上位机预处理策略：先在 PC 端统一缩放或裁剪，再按工程当前支持的帧格式发送。
 
-\subsection{图像格式与尺寸匹配问题}
+\subsection{HDMI 画面调试}
 
-输入扩展时不能只看上位机能不能打开图片，还要看最终送给 FPGA 的帧是否满足工程约定。若帧头中的宽高、格式字段或实际像素数量不一致，PS 端可能一直等待帧头或拒绝当前帧。最终采用上位机统一预处理方案，先把不同来源的图片转成 RGB888 和目标尺寸，再通过原协议发送，避免把格式差异传到硬件侧。
+HDMI 显示问题通常不容易只看代码判断，需要结合显示器现象、串口信息和 Vivado 资源/时序报告一起看。比如画面错位时，需要检查坐标映射和 BRAM 地址；图像不刷新时，需要检查 UART 帧是否完整；显示模式不切换时，需要检查控制字地址是否和 PL 端读取地址一致。
 
-\subsection{显示控制不同步问题}
+\subsection{报告与仓库整理}
 
-显示模式、阈值和叠加开关由控制帧写入 BRAM 控制区。如果 PS 写入地址和 PL 读取地址不一致，就会出现上位机发送了控制命令但 HDMI 画面不变化的现象。因此调试时需要同时检查上位机发送日志、PS 串口打印和 PL 端地址定义，保证控制字地址约定一致。
+课程提交要求包含工程文件和 Markdown 报告。前期图片路径如果直接引用本地绝对路径，在 GitHub 页面上无法显示；后续统一把报告图片放入对应工程的 \verb|picture| 或 \verb|build| 目录，并使用相对路径引用。综合报告则把图片统一复制到 \verb|figures|，便于 LaTeX 编译和仓库保存。
 
 \section{总结}
 
-本次最终报告主要记录第二周围绕实验五展开的工作。基础部分完成了 PC 上位机、PS 程序、BRAM 缓存、PL 图像处理和 HDMI 显示之间的完整联调，实现了原图、灰度、边缘、彩色叠加显示以及阈值控制。相比前面几个实验，实验五更接近一个完整的小系统：既有图像数据通路，也有控制命令通路。
+这次课程设计从一个纯 RTL Sobel 仿真开始，最后做到 PC 上位机、PS 程序、PL 图像流水线和 HDMI 输出联动，过程里最明显的感受是：FPGA 实验不只是把某一个模块写对，还要让数据格式、地址、时序和外设行为全部对齐。很多问题单看一个模块都像是对的，真正上板之后才会暴露在串口、显示器和波形里。
 
-综合扩展部分选择了上位机输入扩展方向。实际实现中，本组没有盲目扩大硬件改动范围，而是把新增图片格式读取和预处理放在 PC 端完成，再将统一后的 RGB888 数据送入 FPGA。这种方案虽然不像完全改 PL 尺寸那样激进，但更稳定，也更符合当前实验基础：硬件侧复用已经跑通的 UART/BRAM/HDMI 链路，上位机侧负责输入灵活性。
+基础实验 0 到 5 分别验证了仿真、HDMI、Sobel、UART、PS/PL 联调和显示控制。小扩展让我们在原工程上做了可见、可验证的修改，例如红色边框、反色边缘和 UART 图像边框。综合拓展则把工作重心放在上位机输入规格上，通过尺寸预设和缩放策略，让输入图像进入 FPGA 前更加可控，同时保留原有显示控制链路。
 
-通过这次实验，我们对 ZYNQ 平台中 PS 与 PL 的分工有了更具体的认识。PS 更适合协议解析和控制管理，PL 更适合稳定时序下的图像流水线处理；上位机则适合处理文件格式、图像缩放和用户交互。真正上板时，很多问题并不是某一段代码单独出错，而是协议、地址、时序和外设状态没有对齐。把这些接口逐一确认清楚，是本次课程设计最大的收获。
+从小组协作看，PL 端、PS 端、上位机和验证材料相互依赖很强。单独完成某一段并不难，难的是让每一段的约定一致。经过这次实验，我们对 ZYNQ 平台中 PS 与 PL 的分工、BRAM 作为图像缓存的作用、UART 帧协议设计以及 HDMI 显示调试都有了更具体的认识。
 
 \appendix
-\section{提交文件说明}
 
-本次最终报告相关文件位于仓库的 \verb|报告| 目录：
+\section{主要提交目录}
 
 \begin{itemize}
-    \item \verb|菲菲公组_FPGA课程设计综合报告.pdf|：最终报告 PDF。
-    \item \verb|课程综合报告_LaTeX/main.tex|：最终报告 LaTeX 源文件。
-    \item \verb|课程综合报告_LaTeX/figures|：报告使用的图片素材。
-    \item \verb|实验五基础.docx|：实验五基础现象记录。
-    \item \verb|展示说明.docx|：实验五综合扩展展示说明。
-    \item \verb|sobel_05_综合扩展任务1_代码修改说明.docx|：综合扩展代码修改说明。
+    \item \verb|sobel_00_rtl_sim|：Sobel RTL 仿真工程与仿真报告。
+    \item \verb|sobel_01_hdmi_pattern_expand|：实验 1 扩展工程与实验报告。
+    \item \verb|sobel_02_hdmi_sobel_expand|：实验 2 扩展工程与实验报告。
+    \item \verb|sobel_03_uart_hdmi_expand|：实验 3 扩展工程与实验报告。
+    \item \verb|sobel_04_uart_sobel_hdmi_expand|：实验 4 扩展工程与实验报告。
+    \item \verb|sobel_05_pc_control_display_expand|：实验 5 基础与综合拓展工程。
+    \item \verb|host_camera_uart_enhanced|：综合拓展上位机程序。
+    \item \verb|报告|：各实验 Markdown 报告、扩展说明和本综合报告。
 \end{itemize}
 
-第一周相关实验的 Markdown 报告和扩展说明仍保留在 \verb|报告| 目录中，作为前期提交材料和过程记录。
+\section{参考资料}
+
+\begin{thebibliography}{99}
+\bibitem{course} 周贤中. FPGA-course/zynq7020-image-processing 课程实验仓库.
+\bibitem{xilinx} AMD Xilinx. Vivado Design Suite User Guide.
+\bibitem{verilog} 夏宇闻. Verilog 数字系统设计教程. 北京航空航天大学出版社.
+\end{thebibliography}
 
 \end{document}
